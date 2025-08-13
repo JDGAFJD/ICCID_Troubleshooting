@@ -17,9 +17,11 @@
     const { useEffect, useMemo, useRef, useState } = React;
 
     const API_VERIFY_ICCID = "https://app.lrlos.com/webhook/jada/verify-iccid";
-    const API_B2_CONTEXT = "https://app.lrlos.com/webhook/b2-context";
-    const API_SIM_DETAILS = "https://app.lrlos.com/webhook/get-simid-details";
+    const API_B2_CONTEXT   = "https://app.lrlos.com/webhook/b2-context";
+    const API_SIM_DETAILS  = "https://app.lrlos.com/webhook/get-simid-details";
     const API_SHIP_CONTEXT = "https://app.lrlos.com/webhook/shipping-context";
+    const NOCODB_URL = "https://app.nocodb.com/api/v2/tables/mbv93senxe5zfng/records";
+    const NOCODB_TOKEN = "oAgRdaE3sAtoalfgflIIPVR2xlw_LdTs07Bt7XXn";
 
     const OK_CARRIER_STATUSES = new Set(["active", "activated", "test ready"]);
     const OK_VERIZON_PLANS = new Set([
@@ -32,9 +34,7 @@
     ]);
 
     function ClickImg({ src, alt, className, onOpen }) {
-      return (
-        <img src={src} alt={alt} className={(className || "") + " cursor-zoom-in"} loading="lazy" onClick={() => onOpen(src, alt)} />
-      );
+      return <img src={src} alt={alt} className={(className || "") + " cursor-zoom-in"} loading="lazy" onClick={() => onOpen(src, alt)} />;
     }
 
     function Lightbox({ src, alt, onClose }) {
@@ -81,6 +81,10 @@
       }
     }
 
+    async function postNocoRecord(record){
+      const opts={method:"POST",headers:{"Content-Type":"application/json","xc-token":NOCODB_TOKEN},body:JSON.stringify([record])};
+      try{await fetchJSON(NOCODB_URL,opts,"NocoDB insert");}catch(e){console.error("NocoDB insert failed",e);} }
+
     function App() {
       const [step, setStep] = useState("form");
       const imeiRef = useRef(null);
@@ -115,10 +119,12 @@
       const shipmentStatus = (shipment && shipment.status) ? String(shipment.status).toLowerCase() : "";
       const imeiMatchesShipment = useMemo(() => {
         if (!shippedImei || !imei) return false;
-        return shippedImei.split(' ').join('') === imei.split(' ').join('');
+        return shippedImei.split(" ").join("") === imei.split(" ").join("");
       }, [shippedImei, imei]);
-
-      const shippedIccidInServices = useMemo(() => !!(shippedIccid && iccids.some(s => String(s.port_id) === shippedIccid)), [shippedIccid, iccids]);
+      const shippedIccidInServices = useMemo(
+        () => !!(shippedIccid && iccids.some(s => String(s.port_id) === shippedIccid)),
+        [shippedIccid, iccids]
+      );
 
       function resetTimer() {
         if (timerRef.current) window.clearInterval(timerRef.current);
@@ -157,15 +163,13 @@
           const shipUrl = `${API_SHIP_CONTEXT}?email=${encodeURIComponent(rawEmail)}`;
           const shipJson = await fetchJSON(shipUrl, undefined, "Shipping context");
           const latest = Array.isArray(shipJson && shipJson.shipments) && shipJson.shipments.length ? shipJson.shipments[0] : null;
-          let latestIccid = "";
           if (latest) {
             let parsed = null;
             const raw = latest.shipstation_order_json;
             if (raw && typeof raw === "string") { try { parsed = JSON.parse(raw); } catch { parsed = null; } }
             const cf1 = (latest.shipstation_order_custom_field_1 || (parsed && parsed.advancedOptions && parsed.advancedOptions.customField1) || "").trim();
             const cf2 = (latest.shipstation_order_custom_field_2 || (parsed && parsed.advancedOptions && parsed.advancedOptions.customField2) || "").trim();
-            const st = latest.shipstation_order_status || (parsed && parsed.orderStatus) || "";
-            latestIccid = cf2;
+            const st  = latest.shipstation_order_status || (parsed && parsed.orderStatus) || "";
             setShipment({ status: st, imeiCF1: cf1, iccidCF2: cf2, orderNumber: latest.shipstation_order_number, shipDate: latest.shipstation_order_ship_date });
           } else {
             setShipment(null);
@@ -175,8 +179,11 @@
           const verifyJson = await fetchJSON(API_VERIFY_ICCID, verifyOpts, "Verify ICCID");
           const services = Array.isArray(verifyJson) ? verifyJson.flatMap((x) => (Array.isArray(x && x.services) ? x.services : [])) : [];
           const uniq = {};
-          for (const s of services) { const pid = String((s && s.port_id) || "").trim(); if (!pid) continue; if (!uniq[pid]) uniq[pid] = { port_id: pid, plan_name: s.plan_name, plan_price: s.plan_price }; }
-          
+          for (const s of services) {
+            const pid = String((s && s.port_id) || "").trim();
+            if (!pid) continue;
+            if (!uniq[pid]) uniq[pid] = { port_id: pid, plan_name: s.plan_name, plan_price: s.plan_price };
+          }
           const list = Object.values(uniq).sort((a, b) => String(a.port_id).localeCompare(String(b.port_id)));
           setIccids(list);
           setStep("iccids");
@@ -202,7 +209,11 @@
           const imeiFromSim = String(data.imei || "");
           const statusOk = !!cStatus && OK_CARRIER_STATUSES.has(cStatus);
           const planOk = carrier === "Verizon" ? OK_VERIZON_PLANS.has(plan) : true;
-          if (!statusOk || !planOk) { setStep("escalate"); return; }
+          if (!statusOk || !planOk) {
+            await postNocoRecord({ Email: email, ICCID: selectedICCID, IMEI: imei, "Carrier Status": cStatus || "Unknown", "Carrier Plan": plan || "" });
+            setStep("escalate");
+            return;
+          }
           if (/^9900168/.test(imei) || /^9900168/.test(imeiFromSim)) { setStep("airLedAsk"); } else { setStep("done"); }
         } catch (err) {
           setError((err && err.message) || "Something went wrong. Please try again.");
@@ -224,11 +235,7 @@
       const Section = ({ title, children }) => (
         <section className="rounded-2xl shadow-lg border border-slate-200 bg-white p-6 md:p-10">
           <h2 className="text-xl font-semibold">{title}</h2>
-          <div className="mt-4 grid md:grid-cols-2 gap-4">
-                  <ClickImg src="images/Air_APN1.png" alt="APN edit 1" className="rounded-xl border" onOpen={openLightbox} />
-                  <ClickImg src="images/Air_APN2.png" alt="APN edit 2" className="rounded-xl border" onOpen={openLightbox} />
-                </div>
-                <p className="text-xs text-slate-500 mt-1">Reference: SIM tab with APN edit</p>
+          <div className="mt-4">{children}</div>
         </section>
       );
 
@@ -280,7 +287,7 @@
                         {imeiMatchesShipment ? <div className="mt-1 text-green-700 font-medium">Matches the IMEI you entered</div> : null}
                         {imeiMatchesShipment && shippedIccid && !shippedIccidInServices ? (
                           <div className="mt-2 text-sm">
-                            This device may not be activated. Please visit <a className="underline" href="https://activatenomad.com" target="_blank" rel="noreferrer">activatenomad.com</a> to activate it. If you already activated, please <a className="underline" href="https://nomadjada.com" target="_blank" rel="noreferrer">speak with Jada</a>.
+                            This device may not be activated. Please visit <a className="underline" href="https://activatenomad.com" target="_blank" rel="noreferrer">activatenomad.com</a>. If you already activated, please <a className="underline" href="https://nomadjada.com" target="_blank" rel="noreferrer">speak with Jada</a>.
                           </div>
                         ) : null}
                       </div>
@@ -381,9 +388,9 @@
                   <li>From <b>Home</b>, go to <b>Settings</b> → <b>Backup and Restore</b> → <b>Restore Factory Defaults</b>.</li>
                 </ul>
                 <div className="mt-4 grid md:grid-cols-3 gap-4">
-                  <ClickImg src="images/Air_HomeUI.png" alt="Home" className="rounded-xl border" onOpen={openLightbox} />
-                  <ClickImg src="images/Air_settingsUI.png" alt="Settings panel highlight" className="rounded-xl border" onOpen={openLightbox} />
-                  <ClickImg src="images/Air_BackupAndRestore.png" alt="Backup and Restore tab" className="rounded-xl border" onOpen={openLightbox} />
+                  <ClickImg src="images/Air_settingsUI.png" alt="Home" className="rounded-xl border" onOpen={openLightbox} />
+                  <ClickImg src="images/Air_BackupAndRestore.png" alt="Settings panel highlight" className="rounded-xl border" onOpen={openLightbox} />
+                  <ClickImg src="images/Air_BackupAndRestore2.png" alt="Backup and Restore tab" className="rounded-xl border" onOpen={openLightbox} />
                 </div>
                 <p className="mt-3 text-sm text-slate-700">This will reboot the device. The LED turns <b>flashing white</b> during reset. Please wait a full 7 minutes.</p>
                 <div className="mt-5 flex gap-3">
@@ -399,7 +406,7 @@
                 <div className="mt-4 text-4xl font-mono text-center">{String(Math.floor(secondsLeft / 60)).padStart(2, '0')}:{String(secondsLeft % 60).padStart(2, '0')}</div>
                 <div className="mt-5 grid md:grid-cols-2 gap-3">
                   <button className="h-11 rounded-xl border" onClick={() => setStep("airFactoryReset")}>Back</button>
-                  <button disabled={secondsLeft > 0} className="h-11 rounded-xl bg-[#129d5b] text-white disabled:opacity-50" onClick={() => setStep("airPostTimer")}>{secondsLeft > 0 ? "Please wait…" : "Timer finished — Continue"}</button>
+                  <button disabled={secondsLeft > 0} className="h-11 px-5 rounded-xl bg-[#129d5b] text-white disabled:opacity-50" onClick={() => setStep("airPostTimer")}>{secondsLeft > 0 ? "Please wait…" : "Timer finished — Continue"}</button>
                 </div>
                 <div className="mt-4 grid grid-cols-2 gap-3">
                   <button className="h-11 rounded-xl bg-green-600 text-white" onClick={() => { setConfirmNextNo("apnSteps"); setStep("confirmWorking"); }}>LED turned Green</button>
@@ -422,10 +429,11 @@
             {step === "apnSteps" && (
               <Section title="APN Update (SIM Tab)">
                 <p className="text-slate-700">Open <code className="bg-slate-100 px-1 rounded">http://192.168.1.1</code> → <b>Settings</b> → <b>SIM</b>. You may be prompted to re-enter the Admin Password. Click <b>Edit</b> next to <b>APN</b> and set it to <b>V5GA01INTERNET</b> (no spaces). Save changes.</p>
-                <div className="mt-4">
-                  <ClickImg src="https://media.discordapp.net/attachments/1403679415065383077/1403681449709797488/image.png?ex=68986fb8&is=68971e38&hm=4a0113464054b897720af7a5ba62925c9fa36f0d6ebb6905898135ed30081af1&=&format=webp&quality=lossless&width=1890&height=1088" alt="SIM tab APN edit" className="rounded-xl border" onOpen={openLightbox} />
-                  <p className="text-xs text-slate-500 mt-1">Reference: SIM tab with APN edit</p>
+                <div className="mt-4 grid md:grid-cols-2 gap-4">
+                  <ClickImg src="images/Air_APN1.png" alt="APN edit 1" className="rounded-xl border" onOpen={openLightbox} />
+                  <ClickImg src="images/Air_APN2.png" alt="APN edit 2" className="rounded-xl border" onOpen={openLightbox} />
                 </div>
+                <p className="text-xs text-slate-500 mt-1">Reference: SIM tab with APN edit</p>
                 <div className="mt-5 flex gap-3">
                   <button className="h-11 px-5 rounded-xl border" onClick={() => setStep("airPostTimer")}>Back</button>
                   <button className="h-11 px-5 rounded-xl bg-[#129d5b] text-white" onClick={() => { resetTimer(); setStep("apnTimer"); }}>Save done — Start 7‑minute timer</button>
@@ -439,7 +447,7 @@
                 <div className="mt-4 text-4xl font-mono text-center">{String(Math.floor(secondsLeft / 60)).padStart(2, '0')}:{String(secondsLeft % 60).padStart(2, '0')}</div>
                 <div className="mt-5 grid md:grid-cols-2 gap-3">
                   <button className="h-11 rounded-xl border" onClick={() => setStep("apnSteps")}>Back</button>
-                  <button disabled={secondsLeft > 0} className="h-11 rounded-xl bg-[#129d5b] text-white disabled:opacity-50" onClick={() => setStep("done")}>{secondsLeft > 0 ? "Please wait…" : "Timer finished — Check LED"}</button>
+                  <button disabled={secondsLeft > 0} className="h-11 px-5 rounded-xl bg-[#129d5b] text-white disabled:opacity-50" onClick={() => setStep("done")}>{secondsLeft > 0 ? "Please wait…" : "Timer finished — Check LED"}</button>
                 </div>
                 <div className="mt-4 grid grid-cols-2 gap-3">
                   <button className="h-11 rounded-xl bg-green-600 text-white" onClick={() => { setConfirmNextNo("speakToJada"); setStep("confirmWorking"); }}>LED turned Green</button>
@@ -466,6 +474,15 @@
                 </div>
                 <div className="mt-5">
                   <a className="h-11 px-5 rounded-xl bg-[#129d5b] text-white inline-flex items-center" href="https://nomadjada.com" target="_blank" rel="noreferrer">Speak with Jada</a>
+                </div>
+              </Section>
+            )}
+
+            {step === "thanks" && (
+              <Section title="Thank you">
+                <p className="text-slate-800">Thank you for your patience. We will work to sort this out as soon as possible. Expect an update within <b>2–4 hours</b>.</p>
+                <div className="mt-5">
+                  <button className="h-11 px-5 rounded-xl border" onClick={() => setStep("form")}>Back to Start</button>
                 </div>
               </Section>
             )}
