@@ -17,8 +17,8 @@
     const { useEffect, useMemo, useRef, useState } = React;
 
     const API_VERIFY_ICCID = "https://app.lrlos.com/webhook/jada/verify-iccid";
-    const API_B2_CONTEXT = "https://app.lrlos.com/webhook/b2-context";
-    const API_SIM_DETAILS = "https://app.lrlos.com/webhook/get-simid-details";
+    const API_B2_CONTEXT   = "https://app.lrlos.com/webhook/b2-context";
+    const API_SIM_DETAILS  = "https://app.lrlos.com/webhook/get-simid-details";
     const API_SHIP_CONTEXT = "https://app.lrlos.com/webhook/shipping-context";
 
     const OK_CARRIER_STATUSES = new Set(["active", "activated", "test ready"]);
@@ -32,9 +32,7 @@
     ]);
 
     function ClickImg({ src, alt, className, onOpen }) {
-      return (
-        <img src={src} alt={alt} className={(className || "") + " cursor-zoom-in"} loading="lazy" onClick={() => onOpen(src, alt)} />
-      );
+      return <img src={src} alt={alt} className={(className || "") + " cursor-zoom-in"} loading="lazy" onClick={() => onOpen(src, alt)} />;
     }
 
     function Lightbox({ src, alt, onClose }) {
@@ -115,8 +113,12 @@
       const shipmentStatus = (shipment && shipment.status) ? String(shipment.status).toLowerCase() : "";
       const imeiMatchesShipment = useMemo(() => {
         if (!shippedImei || !imei) return false;
-        return shippedImei.split(' ').join('') === imei.split(' ').join('');
+        return shippedImei.split(" ").join("") === imei.split(" ").join("");
       }, [shippedImei, imei]);
+      const shippedIccidInServices = useMemo(
+        () => !!(shippedIccid && iccids.some(s => String(s.port_id) === shippedIccid)),
+        [shippedIccid, iccids]
+      );
 
       function resetTimer() {
         if (timerRef.current) window.clearInterval(timerRef.current);
@@ -162,7 +164,7 @@
             if (raw && typeof raw === "string") { try { parsed = JSON.parse(raw); } catch { parsed = null; } }
             const cf1 = (latest.shipstation_order_custom_field_1 || (parsed && parsed.advancedOptions && parsed.advancedOptions.customField1) || "").trim();
             const cf2 = (latest.shipstation_order_custom_field_2 || (parsed && parsed.advancedOptions && parsed.advancedOptions.customField2) || "").trim();
-            const st = latest.shipstation_order_status || (parsed && parsed.orderStatus) || "";
+            const st  = latest.shipstation_order_status || (parsed && parsed.orderStatus) || "";
             latestIccid = cf2;
             setShipment({ status: st, imeiCF1: cf1, iccidCF2: cf2, orderNumber: latest.shipstation_order_number, shipDate: latest.shipstation_order_ship_date });
           } else {
@@ -173,8 +175,11 @@
           const verifyJson = await fetchJSON(API_VERIFY_ICCID, verifyOpts, "Verify ICCID");
           const services = Array.isArray(verifyJson) ? verifyJson.flatMap((x) => (Array.isArray(x && x.services) ? x.services : [])) : [];
           const uniq = {};
-          for (const s of services) { const pid = String((s && s.port_id) || "").trim(); if (!pid) continue; if (!uniq[pid]) uniq[pid] = { port_id: pid, plan_name: s.plan_name, plan_price: s.plan_price }; }
-          if (latestIccid && !uniq[latestIccid]) { uniq[latestIccid] = { port_id: latestIccid, plan_name: "From latest shipment" }; }
+          for (const s of services) {
+            const pid = String((s && s.port_id) || "").trim();
+            if (!pid) continue;
+            if (!uniq[pid]) uniq[pid] = { port_id: pid, plan_name: s.plan_name, plan_price: s.plan_price };
+          }
           const list = Object.values(uniq).sort((a, b) => String(a.port_id).localeCompare(String(b.port_id)));
           setIccids(list);
           setStep("iccids");
@@ -212,7 +217,7 @@
       function Header() {
         return (
           <header className="py-8 flex flex-col items-center">
-            <img src="https://media.discordapp.net/attachments/1403679415065383077/1403682909109489755/eyx9a8rdq29wqghyg2it.png?ex=68987114&is=68971f94&hm=fb004d198cc16b4be5128ed23d4e7b0f0bdc030b1713e603ec0954238b9ee316&=&format=webp&quality=lossless&width=1296&height=1296" alt="Nomad" className="h-80 mb-4 opacity-80" />
+            <img src="images/NomadLogo.png" alt="Nomad" className="h-80 mb-4 opacity-80" />
             <h1 className="text-3xl md:text-4xl font-semibold tracking-tight">Check Your Account</h1>
             <p className="mt-2 text-slate-600 max-w-2xl text-center">Enter your IMEI and email to verify status, select an ICCID, and follow guided troubleshooting.</p>
           </header>
@@ -272,8 +277,13 @@
                         {shipmentStatus === "shipped" && shippedImei ? <div className="mt-1">IMEI: <span className="font-mono">{shippedImei}</span></div> : null}
                         {shipmentStatus === "shipped" && shippedIccid ? <div className="mt-1">ICCID: <span className="font-mono">{shippedIccid}</span></div> : null}
                         {imeiMatchesShipment ? <div className="mt-1 text-green-700 font-medium">Matches the IMEI you entered</div> : null}
+                        {imeiMatchesShipment && shippedIccid && !shippedIccidInServices ? (
+                          <div className="mt-2 text-sm">
+                            This device may not be activated. Please visit <a className="underline" href="https://activatenomad.com" target="_blank" rel="noreferrer">activatenomad.com</a>. If you already activated, please <a className="underline" href="https://nomadjada.com" target="_blank" rel="noreferrer">speak with Jada</a>.
+                          </div>
+                        ) : null}
                       </div>
-                      {shippedIccid ? (
+                      {shippedIccidInServices ? (
                         <button className="h-10 px-4 rounded-lg bg-[#129d5b] text-white" onClick={() => setSelectedICCID(shippedIccid)}>Use shipped ICCID</button>
                       ) : null}
                     </div>
@@ -306,19 +316,19 @@
 
             {step === "needIccidHelp" && (
               <Section title="Find Your ICCID on Nomad Air (if IMEI starts with 9900168)">
-                <p className="text-slate-700">If your IMEI starts with <b>9900168</b>, you have a <b>Nomad Air</b> (FX2000e). Connect to the device Wi‑Fi (name is on the bottom sticker), then open <code className="bg-slate-100 px-1 rounded">http://192.168.1.1</code>. Sign in using the Admin Password on the bottom sticker.</p>
+                <p className="text-slate-700">If your IMEI starts with <b>9900168</b>, you have a <b>Nomad Air</b> (FX2000e). Connect to the device Wi-Fi (name is on the bottom sticker), then open <code className="bg-slate-100 px-1 rounded">http://192.168.1.1</code>. Sign in using the Admin Password on the bottom sticker.</p>
                 <ul className="list-disc ml-5 mt-3 text-slate-700 text-sm space-y-2">
-                  <li>If you're on a phone, enable <b>Airplane Mode</b> first, then connect to the Air's Wi‑Fi to avoid switching back to mobile data.</li>
+                  <li>If you're on a phone, enable <b>Airplane Mode</b> first, then connect to the Air's Wi-Fi to avoid switching back to mobile data.</li>
                   <li>You do <b>not</b> need internet access to open the Admin UI; it works locally.</li>
                   <li>On the Home page, look for <b>SIM Status</b> — you'll see <b>ICCID</b> listed there.</li>
                 </ul>
                 <div className="mt-4 grid md:grid-cols-2 gap-4">
                   <figure className="border rounded-xl p-2 text-center">
-                    <ClickImg src="https://media.discordapp.net/attachments/1403679415065383077/1403680454380490833/image.png?ex=68986ecb&is=68971d4b&hm=b8f5e94b37c7e0408dda31351d1341fa3157d76f611925a7fb3112b1af865296&=&format=webp&quality=lossless&width=1100&height=620" alt="Home page overview" className="mx-auto rounded" onOpen={openLightbox} />
+                    <ClickImg src="images/Air_HomeUI.png" alt="Home page overview" className="mx-auto rounded" onOpen={openLightbox} />
                     <figcaption className="text-xs text-slate-500 mt-1">Reference: Home page with SIM Status panel</figcaption>
                   </figure>
                   <figure className="border rounded-xl p-2 text-center">
-                    <ClickImg src="https://media.discordapp.net/attachments/1403679415065383077/1403680555870191678/image.png?ex=68986ee3&is=68971d63&hm=2f795e3789e14e93fbc8db02884ebfd32484a301d9923c2fec43803ee4c1e69f&=&format=webp&quality=lossless&width=1292&height=1296" alt="SIM status highlighted" className="mx-auto rounded" onOpen={openLightbox} />
+                    <ClickImg src="images/Air_ICCID.png" alt="SIM status highlighted" className="mx-auto rounded" onOpen={openLightbox} />
                     <figcaption className="text-xs text-slate-500 mt-1">Reference: SIM Status location</figcaption>
                   </figure>
                 </div>
@@ -344,11 +354,11 @@
               <Section title="Nomad Air — What color is the LED?">
                 <div className="grid md:grid-cols-2 gap-4">
                   <figure className="border rounded-xl p-2 text-center">
-                    <ClickImg src="https://media.discordapp.net/attachments/1403679415065383077/1403680129854603324/image.png?ex=68986e7e&is=68971cfe&hm=656f1bccd3b9102a7481927ff935ac0e959c6f04e83dd1bf8d511eeb97b8f0a0&=&format=webp&quality=lossless&width=1980&height=1088" alt="Nomad Air device" className="mx-auto rounded" onOpen={openLightbox} />
+                    <ClickImg src="images/Fx2000e%20device.png" alt="Nomad Air device" className="mx-auto rounded" onOpen={openLightbox} />
                     <figcaption className="text-xs text-slate-500 mt-1">Nomad Air (FX2000e)</figcaption>
                   </figure>
                   <figure className="border rounded-xl p-2 text-center">
-                    <ClickImg src="https://media.discordapp.net/attachments/1403679415065383077/1403680306250121330/image.png?ex=68986ea8&is=68971d28&hm=29e6c430b9404c6344c23d42fb9ff133aa719bc266f6b0c24e63a087e98add16&=&format=webp&quality=lossless&width=1456&height=1296" alt="LED meanings" className="mx-auto rounded" onOpen={openLightbox} />
+                    <ClickImg src="images/Air_lightIndicators.png" alt="LED meanings" className="mx-auto rounded" onOpen={openLightbox} />
                     <figcaption className="text-xs text-slate-500 mt-1">LED guide</figcaption>
                   </figure>
                 </div>
@@ -366,18 +376,18 @@
                 <p className="text-slate-700">On a device connected to your Air, open <code className="bg-slate-100 px-1 rounded">http://192.168.1.1</code> → <b>Sign In</b> (top-right) using the Admin Password on the bottom sticker.</p>
                 <ul className="list-disc ml-5 mt-3 text-slate-700 text-sm space-y-2">
                   <li>Admin UI works locally — no internet needed.</li>
-                  <li>On phones, enable <b>Airplane Mode</b>, then connect to the Air's Wi‑Fi so it doesn't switch to mobile data.</li>
+                  <li>On phones, enable <b>Airplane Mode</b>, then connect to the Air's Wi-Fi so it doesn't switch to mobile data.</li>
                   <li>From <b>Home</b>, go to <b>Settings</b> → <b>Backup and Restore</b> → <b>Restore Factory Defaults</b>.</li>
                 </ul>
                 <div className="mt-4 grid md:grid-cols-3 gap-4">
-                  <ClickImg src="https://media.discordapp.net/attachments/1403679415065383077/1403680454380490833/image.png?ex=68986ecb&is=68971d4b&hm=b8f5e94b37c7e0408dda31351d1341fa3157d76f611925a7fb3112b1af865296&=&format=webp&quality=lossless&width=1100&height=620" alt="Home" className="rounded-xl border" onOpen={openLightbox} />
-                  <ClickImg src="https://media.discordapp.net/attachments/1403679415065383077/1403680948721025084/Screenshot_2025-08-09_at_5.05.39_AM.png?ex=68986f41&is=68971dc1&hm=6f86a2d2c35592938a206cbb48c2ada1ec7a37d1350d6df59c6a68b46cdb82e2&=&format=webp&quality=lossless&width=1100&height=630" alt="Settings panel highlight" className="rounded-xl border" onOpen={openLightbox} />
-                  <ClickImg src="https://media.discordapp.net/attachments/1403679415065383077/1403681257443037266/image.png?ex=68986f8a&is=68971e0a&hm=f16f48c4fb51ed345009c859d33e34a75c328f5ed790ba4018107113af008db2&=&format=webp&quality=lossless&width=1710&height=1088" alt="Backup and Restore tab" className="rounded-xl border" onOpen={openLightbox} />
+                  <ClickImg src="images/Air_HomeUI.png" alt="Home" className="rounded-xl border" onOpen={openLightbox} />
+                  <ClickImg src="images/Air_settingsUI.png" alt="Settings panel highlight" className="rounded-xl border" onOpen={openLightbox} />
+                  <ClickImg src="images/Air_BackupAndRestore.png" alt="Backup and Restore tab" className="rounded-xl border" onOpen={openLightbox} />
                 </div>
                 <p className="mt-3 text-sm text-slate-700">This will reboot the device. The LED turns <b>flashing white</b> during reset. Please wait a full 7 minutes.</p>
                 <div className="mt-5 flex gap-3">
                   <button className="h-11 px-5 rounded-xl border" onClick={() => setStep("airLedAsk")}>Back</button>
-                  <button className="h-11 px-5 rounded-xl bg-[#129d5b] text-white" onClick={() => { resetTimer(); setStep("airTimer"); }}>Start 7‑minute timer</button>
+                  <button className="h-11 px-5 rounded-xl bg-[#129d5b] text-white" onClick={() => { resetTimer(); setStep("airTimer"); }}>Start 7-minute timer</button>
                 </div>
               </Section>
             )}
@@ -399,7 +409,7 @@
 
             {step === "airPostTimer" && (
               <Section title="LED Status After Reset">
-                <p className="text-sm text-slate-700">What is the LED now? If it's not red, test your internet (reconnect to the Air's Wi‑Fi first).</p>
+                <p className="text-sm text-slate-700">What is the LED now? If it's not red, test your internet (reconnect to the Air's Wi-Fi first).</p>
                 <div className="mt-4 grid md:grid-cols-3 gap-3">
                   <button className="h-11 rounded-xl border" onClick={() => setStep("apnSteps")}>Solid/Flashing Red</button>
                   <button className="h-11 rounded-xl border" onClick={() => { setConfirmNextNo("apnSteps"); setStep("confirmWorking"); }}>Green/Blue (works)</button>
@@ -411,13 +421,14 @@
             {step === "apnSteps" && (
               <Section title="APN Update (SIM Tab)">
                 <p className="text-slate-700">Open <code className="bg-slate-100 px-1 rounded">http://192.168.1.1</code> → <b>Settings</b> → <b>SIM</b>. You may be prompted to re-enter the Admin Password. Click <b>Edit</b> next to <b>APN</b> and set it to <b>V5GA01INTERNET</b> (no spaces). Save changes.</p>
-                <div className="mt-4">
-                  <ClickImg src="https://media.discordapp.net/attachments/1403679415065383077/1403681449709797488/image.png?ex=68986fb8&is=68971e38&hm=4a0113464054b897720af7a5ba62925c9fa36f0d6ebb6905898135ed30081af1&=&format=webp&quality=lossless&width=1890&height=1088" alt="SIM tab APN edit" className="rounded-xl border" onOpen={openLightbox} />
-                  <p className="text-xs text-slate-500 mt-1">Reference: SIM tab with APN edit</p>
+                <div className="mt-4 grid md:grid-cols-2 gap-4">
+                  <ClickImg src="images/Air_APN1.png" alt="APN edit 1" className="rounded-xl border" onOpen={openLightbox} />
+                  <ClickImg src="images/Air_APN2.png" alt="APN edit 2" className="rounded-xl border" onOpen={openLightbox} />
                 </div>
+                <p className="text-xs text-slate-500 mt-1">Reference: SIM tab with APN edit</p>
                 <div className="mt-5 flex gap-3">
                   <button className="h-11 px-5 rounded-xl border" onClick={() => setStep("airPostTimer")}>Back</button>
-                  <button className="h-11 px-5 rounded-xl bg-[#129d5b] text-white" onClick={() => { resetTimer(); setStep("apnTimer"); }}>Save done — Start 7‑minute timer</button>
+                  <button className="h-11 px-5 rounded-xl bg-[#129d5b] text-white" onClick={() => { resetTimer(); setStep("apnTimer"); }}>Save done — Start 7-minute timer</button>
                 </div>
               </Section>
             )}
@@ -439,7 +450,7 @@
 
             {step === "confirmWorking" && (
               <Section title="Is it working now?">
-                <p className="text-slate-700">Reconnect to the Air's Wi‑Fi and try loading a website.</p>
+                <p className="text-slate-700">Reconnect to the Air's Wi-Fi and try loading a website.</p>
                 <div className="mt-4 grid md:grid-cols-2 gap-3">
                   <button className="h-11 rounded-xl bg-green-600 text-white" onClick={() => setStep("done")}>Yes, it’s working</button>
                   <button className="h-11 rounded-xl bg-red-600 text-white" onClick={() => setStep(confirmNextNo)}>No, still not working</button>
@@ -450,7 +461,7 @@
             {step === "speakToJada" && (
               <Section title="Let’s get you to Jada">
                 <div className="flex items-center gap-4">
-                  <img src="https://media.discordapp.net/attachments/1403679415065383077/1403790436442574998/image.png?ex=6898d539&is=689783b9&hm=5a64caeefd2c3d87ed17dac2b543699f962cab4285357307dfb0772669542271&=&format=webp&quality=lossless&width=450&height=450" alt="Jada" className="h-16 w-16 rounded-full" />
+                  <img src="images/jadalogo.png" alt="Jada" className="h-16 w-16 rounded-full" />
                   <p className="text-slate-700">We tried the APN sequence and it still isn’t working. Please proceed to speak with Jada for live assistance.</p>
                 </div>
                 <div className="mt-5">
